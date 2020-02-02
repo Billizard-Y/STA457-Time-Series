@@ -1,0 +1,154 @@
+---
+title: "STA457 Homework 3"
+author: "Depeng Ye 1002079500"
+date: "25/11/2019"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tseries)
+library(forecast)
+library(MASS)
+```
+# Q1
+Data read, crop, and overview are shown below. 
+```{r}
+# read the csv file.
+IBM = read.csv("IBM.csv", header = T)
+# crop the csv file into our desired time period.
+IBM_crop = IBM[203:1208,]
+# show first month (in date) of our data. 
+Samp = data.frame(tail(IBM_crop, n = 20))
+# sample data table shown below
+```
+
+```{r results='asis', echo=FALSE}
+    # Setting `results = 'asis'` allows for using Latex within the code chunk
+    cat('\\begin{center}')
+    # `{c c}` Creates a two column table
+    # Use `{c | c}` if you'd like a line between the tables
+    cat('\\begin{tabular}{ c c }')
+    print(knitr::kable(Samp[1:10,], format = 'latex'))
+    # Separate the two columns with an `&`
+    cat('&')
+    print(knitr::kable(Samp[11:20,], format = 'latex'))
+    cat('\\end{tabular}')
+    cat('\\end{center}')
+```
+
+# Q2
+```{r}
+acf(IBM_crop$Adj.Close, lag = 40, main = "ACF of IBM stock price")
+pacf(IBM_crop$Adj.Close, lag = 40, main = "Partial ACF of IBM stock price")
+```
+
+We notice that the ACF follows a geometric pattern. Hence, our PACF should determine our value of $p$ and a AR model should be fitted.  
+Note that there is only the first lag is significant in the PACF plot. Therefore, we should use AR(1).
+
+# Q3 
+We use the Ljung-Box test for such a simultaneous test for $\rho (1) = \rho (2) = \dots = \rho (K)$ where $K = 5$ for IBM price.  
+$H_0$: $\rho (1) = \rho (2) = \dots  \rho (K)$ for $K = 5$.  
+$H_1$: one or more of $\rho (1)$, $\rho (2)$, $\ldots$, $\rho (K)$ is nonzero. 
+```{r}
+Box.test(IBM_crop$Adj.Close, lag = 5, type = "Ljung-Box")
+```
+According to the result of Ljung-Box test, we have a $p$-value less than 2.2$e$-16. We can strongly reject $H_0$ because the $p$-value is too small. Namely, it means that at least one of the 5 autocorrelations is nonzero. 
+
+# Q4 
+```{r}
+AR1Fit = arima(IBM_crop$Adj.Close, order = c(1, 0, 0))
+AR1Fit
+#test the adquataness with K = 5, 10, 15, and 20
+Box.test(residuals(AR1Fit), lag = 5, type = "Ljung-Box", fitdf = 1)
+Box.test(residuals(AR1Fit), lag = 10, type = "Ljung-Box", fitdf = 1)
+Box.test(residuals(AR1Fit), lag = 15, type = "Ljung-Box", fitdf = 1)
+Box.test(residuals(AR1Fit), lag = 20, type = "Ljung-Box", fitdf = 1)
+```
+According to the test result of our fited AR1 model, we can conclude that the significance of rejecting the null hypothesis is not high, meaning that the residuals are uncorrelated for whatever value of lag. This is a sign that the AR(1) model is an adquate fit for our IBM stock price data.  
+AR(1) with estimated parameters:  
+$$\hat{Y_t} = 132.68 + 0.99Y_{t-1} + \epsilon_i$$
+
+# Q5  
+This data set is stationary. Use KPSS test, ADF test, and Plillip-Peron test to test the stationarity. THe results are shown as follows:  
+```{r}
+kpss.test(IBM_crop$Adj.Close)
+adf.test(IBM_crop$Adj.Close)
+pp.test(IBM_crop$Adj.Close)
+```
+Notice that in both P-P test and ADf test, stationary can not be rejected because of the large $p$-value, while in the KPSS test, non-stationary can be rejected with a sufficiently small $p$-value.  
+Hence, the data set is stationary.  
+
+# Q6
+The noise $\epsilon_i$ of our AR(1) model is Gaussian because the estimated mean of the noise $\epsilon$ is 0.0043 and variance is 2.92 according to the outcome of our fitted AR(1) model. Hence, it seems to have a constant mean, and variance. The following plots can show constant mean and variance too. 
+```{r}
+plot(AR1Fit$residuals)
+```
+
+# Q7
+Use auto.arima() function to find the best ARIMA model based on AIC. 
+```{r}
+AutoFit = auto.arima(IBM_crop$Adj.Close, max.p = 10, max.q = 10, d = 0, ic = "aic")
+AutoFit
+```
+Notice that the result of ARIMA model fitted based on AIC is ARIMA(2, 0, 0). The model mathematically looks like:  
+$$\hat{Y_t} = 133.912 + 0.996Y_{t-1} -0.006Y_{t-2} + \epsilon_t$$
+
+# Q8 
+Draw some plots of the residuls of the AIC fitted ARIMA model first, we can notice that the distribution shall be heavy tailed. Hence, we are trying to fit a $t$-distribution to the residuls. 
+```{r warning=FALSE}
+plot(AutoFit$residuals)
+qqnorm(AutoFit$residuals)
+qqline(AutoFit$residuals, col = "red")
+
+#fit the t-distributino
+tFit = fitdistr(AutoFit$residuals, "t")
+tFit$estimate
+```
+As we can see from the result of the fit, $\epsilon_t \sim t(3.47)$.  
+
+# Q9
+As the quantile plot has ben shown in Q8, I will only do the overlay plot in this part. 
+```{r}
+plot(ecdf(AutoFit$residuals), col = "green", xlim = c(-20, 20), 
+     main = "empirical density CDF vs fitted t overlay", 
+     ylab = "Cumulative Propotion", xlab = "residuals")
+par(new = T)
+plot(ecdf(rt(1006, tFit$estimate["df"])), col = "red", 
+     xlim = c(-20, 20), main = "", xlab = "", ylab = "", lty = 2)
+legend("bottomright", legend = c("empirical density", "fitted t-distribution"), 
+       col = c("green", "red"), lty = 1 : 2)
+
+res = data.frame(AutoFit$residuals)
+colnames(res) = "resid"
+hist(res$resid, prob = T, ylim = c(0, 0.4), breaks = 20, main = "histogram overlay",
+     xlab = "residuals")
+lines(density(res$resid), col = "red", lty = 2)
+legend("topleft", legend = c("empirical density", "fitted t-distribution"), 
+       col = c("black", "red"), lty = 1 : 2)
+
+```
+
+It is not hard to spot from the overlaied plot that the t-distribution is well fitted when compared to the empirical density. 
+
+# Q10
+We can use the forecast() function to do a modelbased forecast of the month of January in 2019. The 95% confidence interval is (116.3, 148.9). plot of confidence band are shown below. The lighter blue represents 95% confident interval, while the darker blue represents 85%. 
+```{r}
+# forecasting the following 31 days using AR(2) model. 
+f = forecast(AutoFit, 31)
+f
+autoplot(f) 
+```
+
+# Q11
+```{r}
+log_re = diff(c(NA, log(IBM_crop$Adj.Close)))
+log_re = na.omit(log_re)
+acf(log_re, lag = 40, main = "ACF of log return")
+pacf(log_re, lag = 40, main = "PACF of Log return")
+hist(log_re, breaks = 25, prob = T)
+ts.plot(log_re,main = "time series plot of log return")
+plot(ecdf(log_re), main = "Empirical density of log return")
+```
+
+With all those plots shown above, it is not hard to notice that log return of the closing price of IBM is a stable time series data set, log return is a more unbiased set of data when compared to closing price. Moreover, log return is a time additive return instead of a portfolio additive return, meaning it can be added to a sum when it comes to a multi time period analysis. Adding multiple log returns will not change the distribution of a single return, which is a good and important point when it comes to data analysis that we don't need to fit a new model to the log return when changing the length of time period.
